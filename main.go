@@ -7,11 +7,21 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"log"
 	
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/joho/godotenv"
 )
 
 func main(){
+
+	loadEnv();
+
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+    	log.Fatal("ANTHROPIC_API_KEY not set")
+	}
+
 	client := anthropic.NewClient();
 
 	scanner := bufio.NewScanner(os.Stdin);
@@ -27,7 +37,7 @@ func main(){
 	err := agent.Run(context.TODO());
 
 	if err != nil {
-		fmt.Printf("Error: %s\n", err.Error);
+		fmt.Printf("Error: %s\n", err.Error());
 	}
 }
 
@@ -41,4 +51,51 @@ func NewAgent(client *anthropic.Client, getUserMessage func()(string, bool)) *Ag
 type Agent struct {
 	client  *anthropic.Client
 	getUserMessage func()(string, bool)
+}
+
+func (a *Agent) Run(ctx context.Context) error {
+	conversation := []anthropic.MessageParam{};
+	fmt.Println("Chat with Claude (use 'crtl-c' to quit)");
+	for {
+		fmt.Print("\u001b[94mYou\u001b[0m: ");
+		userInput, ok := a.getUserMessage();
+		if !ok {
+			break;
+		}
+
+		userMessage := anthropic.NewUserMessage(anthropic.NewTextBlock(userInput));
+		conversation = append(conversation, userMessage);
+
+		message, err := a.runInference(ctx, conversation);
+		if err != nil {
+			return err;
+		}
+		conversation = append(conversation, message.ToParam());
+
+		for _, content := range message.Content {
+			switch content.Type {
+			case "text":
+				fmt.Printf("\u001b[93mClaude\u001b[0m: %s\n", content.Text);
+			}
+		}
+	}
+	return nil; 
+}
+
+func (a *Agent) runInference(ctx context.Context, conversation []anthropic.MessageParam) (*anthropic.Message, error) {
+
+	message, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
+		// Model:     anthropic.ModelClaude3_7SonnetLatest,
+		Model: anthropic.ModelClaude3_5HaikuLatest,
+		MaxTokens: int64(1024),
+		Messages:  conversation,
+	})
+	return message, err;
+}
+
+func loadEnv() {
+    err := godotenv.Load()
+    if err != nil {
+        log.Fatal("Error loading .env file")
+    }
 }
